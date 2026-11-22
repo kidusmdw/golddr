@@ -55,7 +55,7 @@ except Exception:  # noqa
 # =============================================================================
 # SETTINGS  (mirror your Pine inputs)
 # =============================================================================
-TELEGRAM_BOT_TOKEN = "9018456967:AAEvhLWXZ-09PzIKFyK0E5TdwA2c0fb6j60"            # or env TELEGRAM_BOT_TOKEN
+TELEGRAM_BOT_TOKEN = ""            # or env TELEGRAM_BOT_TOKEN
 TELEGRAM_CHAT_ID = "402823157"              # or env TELEGRAM_CHAT_ID
 
 DATA_SOURCE = "tradingview"        # "tradingview" = the same candles as your chart (free, no account needed)
