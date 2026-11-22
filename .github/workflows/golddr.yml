@@ -1,0 +1,46 @@
+name: GoldDR alerts
+
+on:
+  schedule:
+    - cron: "7,22,37,52 * * * *"   # backup timer only (GitHub may start it late); cron-job.org is the main timer
+  workflow_dispatch:                # cron-job.org (and you, by hand) start the run through this
+
+concurrency:
+  group: golddr
+  cancel-in-progress: false
+
+jobs:
+  alerts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Restore last-alert memory
+        uses: actions/cache/restore@v4
+        with:
+          path: gold_alerts_state.json
+          key: golddr-state-${{ github.run_id }}
+          restore-keys: golddr-state-
+
+      - run: pip install certifi
+
+      - name: Check for new entries
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
+          DATA_SOURCE: twelvedata
+          MAX_CATCHUP_BARS: "6"
+        run: python gold_alerts.py --once
+
+      - name: Save last-alert memory
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: gold_alerts_state.json
+          key: golddr-state-${{ github.run_id }}
