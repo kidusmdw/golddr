@@ -56,9 +56,9 @@ except Exception:  # noqa
 # SETTINGS  (mirror your Pine inputs)
 # =============================================================================
 TELEGRAM_BOT_TOKEN = ""            # or env TELEGRAM_BOT_TOKEN
-TELEGRAM_CHAT_ID = "402823157"              # or env TELEGRAM_CHAT_ID
+TELEGRAM_CHAT_ID = ""              # or env TELEGRAM_CHAT_ID
 
-DATA_SOURCE = "tradingview"        # "tradingview" = the same candles as your chart (free, no account needed)
+DATA_SOURCE = "twelvedata"        # "tradingview" = the same candles as your chart (free, no account needed)
                                    # "twelvedata"  = backup option (free key from twelvedata.com)
 TV_SYMBOL = "XAUUSD"               # TradingView symbol ...
 TV_EXCHANGE = "OANDA"              # ... and broker feed (use the same one your chart shows)
