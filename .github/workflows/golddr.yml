@@ -57,7 +57,10 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python gold_alerts.py --test-telegram
+          TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
+        run: |
+          python gold_alerts.py --test-telegram
+          python gold_alerts.py --test-open
 
       - name: Print the trades found in the history (check mode)
         if: ${{ inputs.run_check }}
