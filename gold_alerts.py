@@ -49,6 +49,8 @@ import ssl
 try:  # use certifi's certificates when available (fixes "CERTIFICATE_VERIFY_FAILED" on macOS)
     import certifi
     SSL_CTX = ssl.create_default_context(cafile=certifi.where())
+    os.environ.setdefault("SSL_CERT_FILE", certifi.where())        # also used by the TradingView websocket library
+    os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
 except Exception:  # noqa
     SSL_CTX = None
 
@@ -58,7 +60,7 @@ except Exception:  # noqa
 TELEGRAM_BOT_TOKEN = ""            # or env TELEGRAM_BOT_TOKEN
 TELEGRAM_CHAT_ID = ""              # or env TELEGRAM_CHAT_ID
 
-DATA_SOURCE = os.environ.get("DATA_SOURCE", "twelvedata")       # "tradingview" = the same candles as your chart (free, no account needed)
+DATA_SOURCE = os.environ.get("DATA_SOURCE", "tradingview")  # "tradingview" = the same candles as your chart (free, no account needed)
                                    # "twelvedata"  = backup option (free key from twelvedata.com)
 TV_SYMBOL = "XAUUSD"               # TradingView symbol ...
 TV_EXCHANGE = "OANDA"              # ... and broker feed (use the same one your chart shows)
@@ -71,7 +73,7 @@ TWELVE_API_KEY = ""                # or env TWELVE_DATA_API_KEY
 TIMEFRAMES = [15, 30]              # chart timeframes to watch (minutes). Only 15 and 30 are supported
 CHECK_DELAY_SEC = 25               # wait this long after a candle closes before reading the data
 DISPLAY_UTC_OFFSET_HOURS = 3       # times shown in the messages (UTC+3 = Addis Ababa)
-MAX_CATCHUP_BARS = 3               # after downtime: still alert for signals of the last N closed candles
+MAX_CATCHUP_BARS = int(os.environ.get("MAX_CATCHUP_BARS", "3"))               # after downtime: still alert for signals of the last N closed candles
 
 # ---- 1) Bias (Daily + 4H)
 DAILY_SWING = 6
@@ -81,7 +83,7 @@ BIAS_RULE = "Daily + 4H agree"     # "Daily + 4H agree" | "Daily only" | "4H onl
 
 # ---- 2) Zones (KD logic)
 PIP_SIZE = 0.1                     # XAU on OANDA: 1 pip = $0.10  (100 pips = $10)
-WICK_ZONES = True                # False = body rejection on S/R (KD), True = weak / wick rejection
+WICK_ZONES = True                  # False = body rejection on S/R (KD), True = weak / wick rejection
 LEFT_BARS = 3
 RIGHT_BARS = 3
 MIN_TOUCHES = 1
@@ -90,11 +92,11 @@ WINDOW_DAYS = 180
 MAX_PIPS_HTF = 100.0
 MAX_PIPS_MID = 50.0                # used for 15m and 30m charts
 MAX_PIPS_LOW = 15.0
-MERGE_PIPS = 100.0
+MERGE_PIPS = 150.0
 
 # ---- 3) Entry candles on S/R
 WICK_PCT = 50.0
-INC_ENGULF = True                  # "Also count engulfing candles as a rejection"
+INC_ENGULF = False                 # "Also count engulfing candles as a rejection"
 TOL_PIPS = 15.0
 SWEEP_PIPS = 300.0
 MIN_GAP = 2
@@ -113,14 +115,38 @@ TEST_DAYS = 120
 SL_PIPS = 100.0
 TP1_PIPS = 100.0
 BE_PIPS = 100.0
-BE_MOVE = True
+BE_MOVE = False
 TP_PIPS = 300.0
-EXTEND_TP = True
+EXTEND_TP = False
 TP_MAX_PIPS = 1000.0
-TP_BUF_PIPS = 20.0
+TP_BUF_PIPS = 0.0
 BLOCK_SKIP = False
 ONE_AT_A_TIME = True
 MAX_TRADE_BARS = 200
+
+# ---- Any setting above can be changed WITHOUT editing this file: set an environment variable with the same name
+# (on GitHub: repo Settings > Secrets and variables > Actions > Variables tab > New repository variable).
+_TUNABLE = ["DAILY_SWING", "H4_SWING", "USE_BIAS", "BIAS_RULE", "WICK_ZONES", "LEFT_BARS", "RIGHT_BARS",
+            "MIN_TOUCHES", "SPACING_HRS", "WINDOW_DAYS", "MAX_PIPS_MID", "MERGE_PIPS", "WICK_PCT", "INC_ENGULF",
+            "TOL_PIPS", "SWEEP_PIPS", "MIN_GAP", "MAX_GAP", "MUST_LEAVE", "CHAIN_REJ", "EN_SINGLE", "EN_DOUBLE",
+            "EN_ENGULF", "EN_DOJI", "EN_HAMMER", "EN_STAR", "SL_PIPS", "TP1_PIPS", "BE_PIPS", "BE_MOVE", "TP_PIPS",
+            "EXTEND_TP", "TP_MAX_PIPS", "TP_BUF_PIPS", "BLOCK_SKIP", "ONE_AT_A_TIME", "MAX_TRADE_BARS"]
+for _n in _TUNABLE:
+    _v = os.environ.get(_n, "").strip()
+    if _v == "":
+        continue
+    _d = globals()[_n]
+    try:
+        if isinstance(_d, bool):
+            globals()[_n] = _v.lower() in ("1", "true", "yes", "on")
+        elif isinstance(_d, int):
+            globals()[_n] = int(float(_v))
+        elif isinstance(_d, float):
+            globals()[_n] = float(_v)
+        else:
+            globals()[_n] = _v
+    except ValueError:
+        print("WARNING: ignoring bad value for %s: %r" % (_n, _v), flush=True)
 
 EQ_TOL = 0.05                      # price tolerance when matching a pivot price to a candle (two feeds differ by cents)
 STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gold_alerts_state.json")
