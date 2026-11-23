@@ -85,7 +85,7 @@ WICK_ZONES = True                # False = body rejection on S/R (KD), True = we
 LEFT_BARS = 3
 RIGHT_BARS = 3
 MIN_TOUCHES = 1
-SPACING_HRS = 4.0
+SPACING_HRS = 2.0
 WINDOW_DAYS = 180
 MAX_PIPS_HTF = 100.0
 MAX_PIPS_MID = 50.0                # used for 15m and 30m charts
