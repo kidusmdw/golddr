@@ -70,6 +70,9 @@ YAHOO_SYMBOL = "XAUUSD=X"          # spot gold on Yahoo. (GC=F is the futures pr
 TWELVE_SYMBOL = "XAU/USD"
 TWELVE_API_KEY = ""                # or env TWELVE_DATA_API_KEY
 
+OPEN_NOTICE = True                 # send a message when the market opens after the weekend (also proves the program is running)
+OPEN_GAP_HRS = 6.0                 # a gap this long between candles = the market was closed (weekend / holiday)
+OPEN_WINDOW_HRS = 3.0              # only announce an opening that happened in the last N hours
 TIMEFRAMES = [15, 30]              # chart timeframes to watch (minutes). Only 15 and 30 are supported
 CHECK_DELAY_SEC = 25               # wait this long after a candle closes before reading the data
 DISPLAY_UTC_OFFSET_HOURS = 3       # times shown in the messages (UTC+3 = Addis Ababa)
@@ -130,7 +133,7 @@ _TUNABLE = ["DAILY_SWING", "H4_SWING", "USE_BIAS", "BIAS_RULE", "WICK_ZONES", "L
             "MIN_TOUCHES", "SPACING_HRS", "WINDOW_DAYS", "MAX_PIPS_MID", "MERGE_PIPS", "WICK_PCT", "INC_ENGULF",
             "TOL_PIPS", "SWEEP_PIPS", "MIN_GAP", "MAX_GAP", "MUST_LEAVE", "CHAIN_REJ", "EN_SINGLE", "EN_DOUBLE",
             "EN_ENGULF", "EN_DOJI", "EN_HAMMER", "EN_STAR", "SL_PIPS", "TP1_PIPS", "BE_PIPS", "BE_MOVE", "TP_PIPS",
-            "EXTEND_TP", "TP_MAX_PIPS", "TP_BUF_PIPS", "BLOCK_SKIP", "ONE_AT_A_TIME", "MAX_TRADE_BARS"]
+            "EXTEND_TP", "TP_MAX_PIPS", "OPEN_NOTICE", "TP_BUF_PIPS", "BLOCK_SKIP", "ONE_AT_A_TIME", "MAX_TRADE_BARS"]
 for _n in _TUNABLE:
     _v = os.environ.get(_n, "").strip()
     if _v == "":
@@ -1010,13 +1013,37 @@ def chart_bars_for(tf_min, b15, now):
     return b15 if tf_min == 15 else resample(b15, tf_min * 60, now)
 
 
+def find_market_open(b15):
+    """Opening time of the latest session that began after a long gap (weekend / holiday), or None."""
+    gap = OPEN_GAP_HRS * 3600
+    for i in range(len(b15) - 1, 0, -1):
+        if b15[i][0] - b15[i - 1][0] >= gap:
+            return b15[i][0]
+    return None
+
+
+def build_open_message(open_t, res, last_close):
+    d, h, tb = res["bias"]
+    lines = ["🟢 XAUUSD market is open",
+             "First candle: %s (UTC+3)" % fmt_time(open_t),
+             "Price: %.2f" % last_close]
+    if USE_BIAS:
+        lines.append("Bias: Daily %s / 4H %s" % (bias_word(d), bias_word(h)))
+        lines.append("Trade bias: %s" % {1: "BUY only", -1: "SELL only", 0: "NO TRADE (wait)"}[tb])
+    lines.append("Watching 15m and 30m. I will message you when a possible entry candle closes.")
+    return "\n".join(lines)
+
+
 def run_cycle(state, send=True):
     now = time.time()
     b15, b1h = fetch_all(now)
     sent = 0
+    res15 = None
     for tf in TIMEFRAMES:
         bars = chart_bars_for(tf, b15, now)
         res = analyze(bars, b1h, tf, now)
+        if tf == 15:
+            res15 = res
         last_t = bars[-1][0]
         prev = state.get(str(tf))
         if prev is None:
@@ -1034,6 +1061,15 @@ def run_cycle(state, send=True):
         if not fresh:
             log("%dm: candle %s closed, no entry." % (tf, fmt_time(last_t)))
         state[str(tf)] = max(prev, last_t)
+    if OPEN_NOTICE and res15 is not None:
+        open_t = find_market_open(b15)
+        if open_t is not None and open_t > state.get("open_notified", 0):
+            if now - open_t <= OPEN_WINDOW_HRS * 3600:
+                msg = build_open_message(open_t, res15, b15[-1][4])
+                log("MARKET OPEN:\n%s" % msg)
+                if send:
+                    send_telegram(msg)
+            state["open_notified"] = open_t
     save_state(state)
     return sent
 
@@ -1171,12 +1207,19 @@ def main():
     ap.add_argument("--once", action="store_true", help="run one cycle and exit")
     ap.add_argument("--test-telegram", action="store_true", help="send a test message")
     ap.add_argument("--find-chat-id", action="store_true", help="print your Telegram chat id")
+    ap.add_argument("--test-open", action="store_true", help="send a sample 'market is open' message now")
     ap.add_argument("--selftest", action="store_true", help="offline test with generated prices")
     a = ap.parse_args()
     if a.selftest:
         selftest()
     elif a.find_chat_id:
         find_chat_id()
+    elif a.test_open:
+        now = time.time()
+        b15, b1h = fetch_all(now)
+        res = analyze(b15, b1h, 15, now)
+        send_telegram("(test) " + build_open_message(find_market_open(b15) or b15[-1][0], res, b15[-1][4]))
+        print("sent")
     elif a.test_telegram:
         send_telegram("✅ GoldDR test message. Telegram alerts work.")
         print("sent")
