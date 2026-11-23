@@ -81,7 +81,7 @@ BIAS_RULE = "Daily + 4H agree"     # "Daily + 4H agree" | "Daily only" | "4H onl
 
 # ---- 2) Zones (KD logic)
 PIP_SIZE = 0.1                     # XAU on OANDA: 1 pip = $0.10  (100 pips = $10)
-WICK_ZONES = False                 # False = body rejection on S/R (KD), True = weak / wick rejection
+WICK_ZONES = True                # False = body rejection on S/R (KD), True = weak / wick rejection
 LEFT_BARS = 3
 RIGHT_BARS = 3
 MIN_TOUCHES = 1
@@ -95,15 +95,15 @@ MERGE_PIPS = 100.0
 # ---- 3) Entry candles on S/R
 WICK_PCT = 50.0
 INC_ENGULF = True                  # "Also count engulfing candles as a rejection"
-TOL_PIPS = 30.0
+TOL_PIPS = 15.0
 SWEEP_PIPS = 300.0
-MIN_GAP = 4
+MIN_GAP = 2
 MAX_GAP = 40
-MUST_LEAVE = False
-CHAIN_REJ = True
+MUST_LEAVE = True
+CHAIN_REJ = False
 EN_SINGLE = False
 EN_DOUBLE = True
-EN_ENGULF = False
+EN_ENGULF = True
 EN_DOJI = False
 EN_HAMMER = False
 EN_STAR = False
