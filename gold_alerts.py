@@ -71,7 +71,7 @@ TWELVE_SYMBOL = "XAU/USD"
 TWELVE_API_KEY = ""                # or env TWELVE_DATA_API_KEY
 
 OPEN_NOTICE = True                 # send a message when the market opens after the weekend (also proves the program is running)
-OPEN_GAP_HRS = 6.0                 # a gap this long between candles = the market was closed (weekend / holiday)
+OPEN_GAP_HRS = 1.0                 # a gap this long between candles = the market was closed (daily break, weekend or holiday)
 OPEN_WINDOW_HRS = 3.0              # only announce an opening that happened in the last N hours
 TIMEFRAMES = [15, 30]              # chart timeframes to watch (minutes). Only 15 and 30 are supported
 CHECK_DELAY_SEC = 25               # wait this long after a candle closes before reading the data
@@ -1014,7 +1014,7 @@ def chart_bars_for(tf_min, b15, now):
 
 
 def find_market_open(b15):
-    """Opening time of the latest session that began after a long gap (weekend / holiday), or None."""
+    """Opening time of the latest session that began after a closed period (daily break, weekend or holiday), or None."""
     gap = OPEN_GAP_HRS * 3600
     for i in range(len(b15) - 1, 0, -1):
         if b15[i][0] - b15[i - 1][0] >= gap:
