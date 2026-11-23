@@ -4,6 +4,20 @@ on:
   schedule:
     - cron: "7,22,37,52 * * * *"   # backup timer only (GitHub may start it late); cron-job.org is the main timer
   workflow_dispatch:                # cron-job.org (and you, by hand) start the run through this
+    inputs:
+      send_test:
+        description: "Tick this to send a Telegram test message instead of checking candles"
+        type: boolean
+        default: false
+      run_check:
+        description: "Tick this to print the trades the script finds in the history (compare with TradingView)"
+        type: boolean
+        default: false
+      data_source:
+        description: "Price feed for this manual run (leave empty to use the saved setting)"
+        type: choice
+        options: ["", "twelvedata", "tradingview"]
+        default: ""
 
 concurrency:
   group: golddr
@@ -13,6 +27,9 @@ jobs:
   alerts:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      # price feed: manual choice > repository variable DATA_SOURCE > twelvedata
+      DATA_SOURCE: ${{ inputs.data_source || vars.DATA_SOURCE || 'twelvedata' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -29,13 +46,71 @@ jobs:
 
       - run: pip install certifi
 
-      - name: Check for new entries
+      - name: Install the TradingView feed (only when selected)
+        run: |
+          if [ "$DATA_SOURCE" = "tradingview" ]; then
+            pip install git+https://github.com/rongardF/tvdatafeed.git
+          fi
+
+      - name: Send Telegram test message
+        if: ${{ inputs.send_test }}
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python gold_alerts.py --test-telegram
+
+      - name: Print the trades found in the history (check mode)
+        if: ${{ inputs.run_check }}
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
-          DATA_SOURCE: twelvedata
           MAX_CATCHUP_BARS: "6"
+          DAILY_SWING: ${{ vars.DAILY_SWING }}
+          H4_SWING: ${{ vars.H4_SWING }}
+          USE_BIAS: ${{ vars.USE_BIAS }}
+          BIAS_RULE: ${{ vars.BIAS_RULE }}
+          WICK_ZONES: ${{ vars.WICK_ZONES }}
+          EN_SINGLE: ${{ vars.EN_SINGLE }}
+          EN_DOUBLE: ${{ vars.EN_DOUBLE }}
+          EN_ENGULF: ${{ vars.EN_ENGULF }}
+          EN_DOJI: ${{ vars.EN_DOJI }}
+          EN_HAMMER: ${{ vars.EN_HAMMER }}
+          EN_STAR: ${{ vars.EN_STAR }}
+          SL_PIPS: ${{ vars.SL_PIPS }}
+          TP1_PIPS: ${{ vars.TP1_PIPS }}
+          TP_PIPS: ${{ vars.TP_PIPS }}
+          MIN_TOUCHES: ${{ vars.MIN_TOUCHES }}
+          MERGE_PIPS: ${{ vars.MERGE_PIPS }}
+          MAX_PIPS_MID: ${{ vars.MAX_PIPS_MID }}
+          WICK_PCT: ${{ vars.WICK_PCT }}
+        run: python gold_alerts.py --check
+
+      - name: Check for new entries
+        if: ${{ !inputs.send_test && !inputs.run_check }}
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
+          MAX_CATCHUP_BARS: "6"
+          DAILY_SWING: ${{ vars.DAILY_SWING }}
+          H4_SWING: ${{ vars.H4_SWING }}
+          USE_BIAS: ${{ vars.USE_BIAS }}
+          BIAS_RULE: ${{ vars.BIAS_RULE }}
+          WICK_ZONES: ${{ vars.WICK_ZONES }}
+          EN_SINGLE: ${{ vars.EN_SINGLE }}
+          EN_DOUBLE: ${{ vars.EN_DOUBLE }}
+          EN_ENGULF: ${{ vars.EN_ENGULF }}
+          EN_DOJI: ${{ vars.EN_DOJI }}
+          EN_HAMMER: ${{ vars.EN_HAMMER }}
+          EN_STAR: ${{ vars.EN_STAR }}
+          SL_PIPS: ${{ vars.SL_PIPS }}
+          TP1_PIPS: ${{ vars.TP1_PIPS }}
+          TP_PIPS: ${{ vars.TP_PIPS }}
+          MIN_TOUCHES: ${{ vars.MIN_TOUCHES }}
+          MERGE_PIPS: ${{ vars.MERGE_PIPS }}
+          MAX_PIPS_MID: ${{ vars.MAX_PIPS_MID }}
+          WICK_PCT: ${{ vars.WICK_PCT }}
         run: python gold_alerts.py --once
 
       - name: Save last-alert memory
