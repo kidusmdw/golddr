@@ -70,6 +70,9 @@ YAHOO_SYMBOL = "XAUUSD=X"          # spot gold on Yahoo. (GC=F is the futures pr
 TWELVE_SYMBOL = "XAU/USD"
 TWELVE_API_KEY = ""                # or env TWELVE_DATA_API_KEY
 
+TRACK_TRADES = True                # after an entry alert, also message when SL or each TP step is hit
+TP_STEP_PIPS = 100.0               # one message every this many pips of profit (TP1, TP2, TP3 ... up to the full TP)
+WAIT_CANDLE_SEC = 45               # at a candle close, wait up to this long for the provider to publish the new candle
 OPEN_NOTICE = True                 # send a message when the market opens after the weekend (also proves the program is running)
 OPEN_GAP_HRS = 1.0                 # a gap this long between candles = the market was closed (daily break, weekend or holiday)
 OPEN_WINDOW_HRS = 3.0              # only announce an opening that happened in the last N hours
@@ -133,7 +136,7 @@ _TUNABLE = ["DAILY_SWING", "H4_SWING", "USE_BIAS", "BIAS_RULE", "WICK_ZONES", "L
             "MIN_TOUCHES", "SPACING_HRS", "WINDOW_DAYS", "MAX_PIPS_MID", "MERGE_PIPS", "WICK_PCT", "INC_ENGULF",
             "TOL_PIPS", "SWEEP_PIPS", "MIN_GAP", "MAX_GAP", "MUST_LEAVE", "CHAIN_REJ", "EN_SINGLE", "EN_DOUBLE",
             "EN_ENGULF", "EN_DOJI", "EN_HAMMER", "EN_STAR", "SL_PIPS", "TP1_PIPS", "BE_PIPS", "BE_MOVE", "TP_PIPS",
-            "EXTEND_TP", "TP_MAX_PIPS", "OPEN_NOTICE", "TP_BUF_PIPS", "BLOCK_SKIP", "ONE_AT_A_TIME", "MAX_TRADE_BARS"]
+            "EXTEND_TP", "TP_MAX_PIPS", "OPEN_NOTICE", "TRACK_TRADES", "TP_STEP_PIPS", "WAIT_CANDLE_SEC", "TP_BUF_PIPS", "BLOCK_SKIP", "ONE_AT_A_TIME", "MAX_TRADE_BARS"]
 for _n in _TUNABLE:
     _v = os.environ.get(_n, "").strip()
     if _v == "":
@@ -348,8 +351,12 @@ def resample(bars, period, now):
     return [b for b in out if b[0] + period <= now]
 
 
+LIVE_BAR = None   # the 15m candle that is still forming (used only to notice SL / TP hits a little earlier)
+
+
 def fetch_all(now):
     """Returns (closed 15m bars, closed 1h bars)."""
+    global LIVE_BAR
     key = TWELVE_API_KEY or os.environ.get("TWELVE_DATA_API_KEY", "")
     last_err = None
     for attempt in range(3):
@@ -365,6 +372,7 @@ def fetch_all(now):
             else:
                 b15 = fetch_yahoo(YAHOO_SYMBOL, "15m", "60d")
                 b1h = fetch_yahoo(YAHOO_SYMBOL, "1h", "1y")
+            LIVE_BAR = b15[-1] if (b15 and b15[-1][0] + 900 > now) else None
             b15 = drop_open(b15, 900, now)
             b1h = drop_open(b1h, 3600, now)
             if len(b15) < 200 or len(b1h) < 200:
@@ -1034,9 +1042,133 @@ def build_open_message(open_t, res, last_close):
     return "\n".join(lines)
 
 
-def run_cycle(state, send=True):
-    now = time.time()
+def expected_last_bar(now):
+    """Open time of the 15m candle that should have just closed (None while the market is closed)."""
+    d = dt.datetime.fromtimestamp(now, tz=dt.timezone.utc)
+    if market_closed(now) or d.hour == 22:        # weekend, or the daily 22:00-23:00 UTC break
+        return None
+    return int(now // 900) * 900 - 900
+
+
+def fetch_fresh(now):
+    """fetch_all, but if we are right after a candle close and the new candle is not there yet, wait a little."""
     b15, b1h = fetch_all(now)
+    exp = expected_last_bar(now)
+    waited = 0
+    while exp is not None and b15[-1][0] == exp - 900 and (now - (exp + 900)) < 120 and waited < WAIT_CANDLE_SEC:
+        time.sleep(5)
+        waited += 5
+        now = time.time()
+        b15, b1h = fetch_all(now)
+    if waited:
+        log("waited %ds for the new candle (%s)" % (waited, "arrived" if b15[-1][0] >= exp else "not yet"))
+    return now, b15, b1h
+
+
+# =============================================================================
+# Follow open trades: message on SL and on every TP step
+# =============================================================================
+def trade_levels(tr):
+    """TP steps for a trade: every TP_STEP_PIPS of profit, the last one is the full TP."""
+    d = tr["dir"]
+    tp_pips = abs(tr["tp"] - tr["entry"]) / PIP_SIZE
+    levels = []
+    k = 1
+    while k * TP_STEP_PIPS < tp_pips - 0.5:
+        levels.append(round(tr["entry"] + d * k * TP_STEP_PIPS * PIP_SIZE, 2))
+        k += 1
+    levels.append(round(tr["tp"], 2))
+    return levels
+
+
+def register_trade(state, tf, tr):
+    if not TRACK_TRADES:
+        return
+    lst = state.setdefault("trades", [])
+    lst.append(dict(tf=tf, time=tr["time"], dir=tr["dir"], trig=tr["trig"], entry=tr["entry"], sl=tr["sl"],
+                    tp=tr["tp"], levels=trade_levels(tr), hit=0, checked=tr["time"] + tf * 60 - 900))
+
+
+def _side(d):
+    return "SELL" if d == -1 else "BUY"
+
+
+def trade_head(t):
+    return "%s XAUUSD %dm (%s)\nEntry: %.2f" % (_side(t["dir"]), t["tf"], t["trig"], t["entry"])
+
+
+def follow_trades(state, b15, now, send=True):
+    """Check the open trades against the newest candles. Returns the number of messages sent."""
+    trades = state.get("trades") or []
+    if not trades:
+        return 0
+    sent = 0
+    keep = []
+    live = LIVE_BAR
+    for t in trades:
+        d = t["dir"]
+        start = t["time"] + t["tf"] * 60            # first candle after the entry candle
+        bars = [b for b in b15 if b[0] >= start and b[0] > t["checked"]]
+        if live is not None and live[0] >= start:
+            bars.append(live)
+        closed = False
+        n_bars_done = int((b15[-1][0] - start) // 900) + 1 if b15 and b15[-1][0] >= start else 0
+        for (bt, o, h, l, c) in bars:
+            sl_hit = (l <= t["sl"]) if d == 1 else (h >= t["sl"])
+            if sl_hit:                                # same rule as the chart: if one candle touches SL it counts as SL
+                done = t["hit"]
+                pips = abs(t["sl"] - t["entry"]) / PIP_SIZE
+                lines = ["❌ SL HIT  -%d pips" % round(pips), trade_head(t), "SL: %.2f" % t["sl"]]
+                if done:
+                    lines.append("(TP1%s had been hit before)" % ("" if done == 1 else "-TP%d" % done))
+                lines.append("Trade closed. Detected: %s (UTC+%d)" % (fmt_time(now), DISPLAY_UTC_OFFSET_HOURS))
+                msg = "\n".join(lines)
+                log("TRADE UPDATE:\n%s" % msg)
+                if send:
+                    send_telegram(msg)
+                sent += 1
+                closed = True
+                break
+            while t["hit"] < len(t["levels"]):
+                lv = t["levels"][t["hit"]]
+                if (h >= lv) if d == 1 else (l <= lv):
+                    t["hit"] += 1
+                    k = t["hit"]
+                    last = (k == len(t["levels"]))
+                    pips = abs(lv - t["entry"]) / PIP_SIZE
+                    if last:
+                        lines = ["🏁 FULL TP HIT (TP%d)  +%d pips" % (k, round(pips)), trade_head(t), "TP%d: %.2f" % (k, lv),
+                                 "Trade closed."]
+                    else:
+                        lines = ["✅ TP%d HIT  +%d pips" % (k, round(pips)), trade_head(t), "TP%d: %.2f" % (k, lv),
+                                 "Next: TP%d %.2f   |   SL still %.2f" % (k + 1, t["levels"][k], t["sl"])]
+                    lines.append("Detected: %s (UTC+%d)" % (fmt_time(now), DISPLAY_UTC_OFFSET_HOURS))
+                    msg = "\n".join(lines)
+                    log("TRADE UPDATE:\n%s" % msg)
+                    if send:
+                        send_telegram(msg)
+                    sent += 1
+                    if last:
+                        closed = True
+                        break
+                else:
+                    break
+            if closed:
+                break
+            if live is None or bt != live[0]:
+                t["checked"] = max(t["checked"], bt)
+        if closed:
+            continue
+        if n_bars_done >= MAX_TRADE_BARS * max(1, t["tf"] // 15):
+            log("trade %s %dm %.2f expired, no longer followed" % (_side(d), t["tf"], t["entry"]))
+            continue
+        keep.append(t)
+    state["trades"] = keep
+    return sent
+
+
+def run_cycle(state, send=True):
+    now, b15, b1h = fetch_fresh(time.time())
     sent = 0
     res15 = None
     for tf in TIMEFRAMES:
@@ -1057,10 +1189,12 @@ def run_cycle(state, send=True):
             log("%dm SIGNAL:\n%s" % (tf, msg))
             if send:
                 send_telegram(msg)
+                register_trade(state, tf, tr)
             sent += 1
         if not fresh:
             log("%dm: candle %s closed, no entry." % (tf, fmt_time(last_t)))
         state[str(tf)] = max(prev, last_t)
+    sent += follow_trades(state, b15, now, send)
     if OPEN_NOTICE and res15 is not None:
         open_t = find_market_open(b15)
         if open_t is not None and open_t > state.get("open_notified", 0):
