@@ -44,12 +44,18 @@ jobs:
           key: golddr-state-${{ github.run_id }}
           restore-keys: golddr-state-
 
-      - run: pip install certifi
+      - name: Cache pip downloads (makes the next runs faster)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: golddr-pip-v1
 
-      - name: Install the TradingView feed (only when selected)
+      - name: Install packages
         run: |
           if [ "$DATA_SOURCE" = "tradingview" ]; then
-            pip install git+https://github.com/rongardF/tvdatafeed.git
+            pip install certifi "git+https://github.com/rongardF/tvdatafeed.git@e6f6aaa7de439ac6e454d9b26d2760ded8dc4923"
+          else
+            pip install certifi
           fi
 
       - name: Send Telegram test message
