@@ -103,9 +103,9 @@ MERGE_PIPS = 150.0
 # ---- 3) Entry candles on S/R
 WICK_PCT = 50.0
 INC_ENGULF = False                 # "Also count engulfing candles as a rejection"
-TOL_PIPS = 15.0
+TOL_PIPS = 30.0
 SWEEP_PIPS = 300.0
-MIN_GAP = 2
+MIN_GAP = 1
 MAX_GAP = 40
 MUST_LEAVE = True
 CHAIN_REJ = False
