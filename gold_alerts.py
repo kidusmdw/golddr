@@ -103,9 +103,9 @@ MERGE_PIPS = 150.0
 # ---- 3) Entry candles on S/R
 WICK_PCT = 50.0
 INC_ENGULF = False                 # "Also count engulfing candles as a rejection"
-TOL_PIPS = 30.0
+TOL_PIPS = 15.0
 SWEEP_PIPS = 300.0
-MIN_GAP = 1
+MIN_GAP = 2
 MAX_GAP = 40
 MUST_LEAVE = True
 CHAIN_REJ = False
@@ -958,11 +958,7 @@ def build_message(tf_min, tr, res):
     return "\n".join(lines)
 
 
-def send_telegram(text):
-    token = TELEGRAM_BOT_TOKEN or os.environ.get("TELEGRAM_BOT_TOKEN", "")
-    chat = TELEGRAM_CHAT_ID or os.environ.get("TELEGRAM_CHAT_ID", "")
-    if not token or not chat:
-        raise RuntimeError("Telegram token / chat id missing (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)")
+def _send_one(token, chat, text):
     url = "https://api.telegram.org/bot%s/sendMessage" % token
     data = urlparse.urlencode({"chat_id": chat, "text": text}).encode("utf-8")
     last = None
@@ -975,10 +971,33 @@ def send_telegram(text):
                 last = body
         except urlerr.HTTPError as e:
             last = "%s %s" % (e.code, e.read().decode("utf-8", "ignore"))
+            if e.code in (400, 403):          # wrong id / user blocked the bot: retrying will not help
+                break
         except Exception as e:  # noqa
             last = e
         time.sleep(2 + attempt * 3)
     raise RuntimeError("Telegram send failed: %s" % last)
+
+
+def send_telegram(text):
+    """Send to every chat id in TELEGRAM_CHAT_ID (several ids separated by commas). One failing id never blocks the others."""
+    token = TELEGRAM_BOT_TOKEN or os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    raw = TELEGRAM_CHAT_ID or os.environ.get("TELEGRAM_CHAT_ID", "")
+    chats = [c.strip() for c in raw.replace(";", ",").replace("\n", ",").replace(" ", ",").split(",") if c.strip()]
+    if not token or not chats:
+        raise RuntimeError("Telegram token / chat id missing (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)")
+    ok = 0
+    errs = []
+    for chat in chats:
+        try:
+            _send_one(token, chat, text)
+            ok += 1
+        except Exception as e:  # noqa
+            errs.append("%s: %s" % (chat, e))
+            log("could not send to chat id %s: %s" % (chat, e))
+    if ok == 0:
+        raise RuntimeError("; ".join(errs))
+    return True
 
 
 def find_chat_id():
