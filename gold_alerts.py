@@ -111,10 +111,10 @@ MUST_LEAVE = True
 CHAIN_REJ = False
 EN_SINGLE = False
 EN_DOUBLE = True
-EN_ENGULF = True
+EN_ENGULF = False
 EN_DOJI = False
 EN_HAMMER = False
-EN_STAR = False
+EN_STAR = True
 
 # ---- 4) Trade
 TEST_DAYS = 120
