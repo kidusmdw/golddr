@@ -76,7 +76,7 @@ WAIT_CANDLE_SEC = 45               # at a candle close, wait up to this long for
 OPEN_NOTICE = True                 # send a message when the market opens after the weekend (also proves the program is running)
 OPEN_GAP_HRS = 1.0                 # a gap this long between candles = the market was closed (daily break, weekend or holiday)
 OPEN_WINDOW_HRS = 3.0              # only announce an opening that happened in the last N hours
-TIMEFRAMES = [15, 30]              # chart timeframes to watch (minutes). Only 15 and 30 are supported
+TIMEFRAMES = [15, 30, 60, 120, 240]   # chart timeframes to watch (minutes): 15, 30, 60 (1H), 120 (2H), 240 (4H)
 CHECK_DELAY_SEC = 25               # wait this long after a candle closes before reading the data
 DISPLAY_UTC_OFFSET_HOURS = 3       # times shown in the messages (UTC+3 = Addis Ababa)
 MAX_CATCHUP_BARS = int(os.environ.get("MAX_CATCHUP_BARS", "3"))               # after downtime: still alert for signals of the last N closed candles
@@ -114,17 +114,25 @@ EN_DOUBLE = True
 EN_ENGULF = False
 EN_DOJI = False
 EN_HAMMER = False
-EN_STAR = True
+EN_STAR = False
+EN_INV_HAM = False             # Inverted hammer: BUY, long upper wick after a bearish candle
+EN_HAM_AUTO = True           # Hammer / Shooting star: the bias picks the candle (works also when USE_BIAS is False)
 
 # ---- 4) Trade
-TEST_DAYS = 180
+TEST_DAYS = 120
 SL_PIPS = 100.0
 TP1_PIPS = 100.0
 BE_PIPS = 100.0
 BE_MOVE = False
-TP_PIPS = 300.0
-EXTEND_TP = True
-TP_MAX_PIPS = 4000.0
+TP_PIPS = 300.0                    # minimum TP on 15m / 30m (1:3 with SL 100)
+SL_1H, SL_2H, SL_4H = 150.0, 200.0, 200.0      # stop loss on the 1H / 2H / 4H charts
+TP_1H, TP_2H, TP_4H = 450.0, 600.0, 600.0      # minimum take profit on the 1H / 2H / 4H charts
+# ---- Setup grade (points -> A+ ... C). Letters: A zone 2 touches, B zone 3+ touches, C one entry candle,
+#      D two or more entry candles together, E no major zone inside the minimum TP distance
+PTS_A, PTS_B, PTS_C, PTS_D, PTS_E = 1, 2, 1, 2, 1
+THR_APLUS, THR_A, THR_BPLUS, THR_B, THR_CPLUS = 5, 4, 3, 2, 1
+EXTEND_TP = False
+TP_MAX_PIPS = 1000.0
 TP_BUF_PIPS = 0.0
 BLOCK_SKIP = False
 ONE_AT_A_TIME = True
@@ -135,7 +143,7 @@ MAX_TRADE_BARS = 200
 _TUNABLE = ["DAILY_SWING", "H4_SWING", "USE_BIAS", "BIAS_RULE", "WICK_ZONES", "LEFT_BARS", "RIGHT_BARS",
             "MIN_TOUCHES", "SPACING_HRS", "WINDOW_DAYS", "MAX_PIPS_MID", "MERGE_PIPS", "WICK_PCT", "INC_ENGULF",
             "TOL_PIPS", "SWEEP_PIPS", "MIN_GAP", "MAX_GAP", "MUST_LEAVE", "CHAIN_REJ", "EN_SINGLE", "EN_DOUBLE",
-            "EN_ENGULF", "EN_DOJI", "EN_HAMMER", "EN_STAR", "SL_PIPS", "TP1_PIPS", "BE_PIPS", "BE_MOVE", "TP_PIPS",
+            "EN_ENGULF", "EN_DOJI", "EN_HAMMER", "EN_STAR", "EN_HAM_AUTO", "EN_INV_HAM", "SL_1H", "SL_2H", "SL_4H", "TP_1H", "TP_2H", "TP_4H", "PTS_A", "PTS_B", "PTS_C", "PTS_D", "PTS_E", "THR_APLUS", "THR_A", "THR_BPLUS", "THR_B", "THR_CPLUS", "SL_PIPS", "TP1_PIPS", "BE_PIPS", "BE_MOVE", "TP_PIPS",
             "EXTEND_TP", "TP_MAX_PIPS", "OPEN_NOTICE", "TRACK_TRADES", "TP_STEP_PIPS", "WAIT_CANDLE_SEC", "TP_BUF_PIPS", "BLOCK_SKIP", "ONE_AT_A_TIME", "MAX_TRADE_BARS"]
 for _n in _TUNABLE:
     _v = os.environ.get(_n, "").strip()
@@ -598,7 +606,7 @@ class Chart:
 
 def candle_flags(chart):
     n = len(chart.t)
-    F = {k: [False] * n for k in ("bullRej", "bearRej", "bullEng", "bearEng", "doji", "ham", "star")}
+    F = {k: [False] * n for k in ("bullRej", "bearRej", "bullEng", "bearEng", "doji", "ham", "star", "inv")}
     for i in range(n):
         o, h, l, c = chart.o[i], chart.h[i], chart.l[i], chart.c[i]
         rng = h - l
@@ -616,17 +624,63 @@ def candle_flags(chart):
         F["bearRej"][i] = (rng > 0 and uw / rng >= WICK_PCT / 100.0 and c <= l + rng * 0.4) or (INC_ENGULF and bear_eng)
         F["doji"][i] = rng > 0 and body <= 0.1 * rng
         F["ham"][i] = rng > 0 and lw >= 2.0 * body and uw <= 0.25 * rng and lw >= 0.5 * rng
-        F["star"][i] = rng > 0 and uw >= 2.0 * body and lw <= 0.25 * rng and uw >= 0.5 * rng
+        long_up = rng > 0 and uw >= 2.0 * body and lw <= 0.25 * rng and uw >= 0.5 * rng
+        prev_bull = i > 0 and chart.c[i - 1] > chart.o[i - 1]
+        prev_bear = i > 0 and chart.c[i - 1] < chart.o[i - 1]
+        F["star"][i] = long_up and prev_bull      # shooting star: SELL, after a bullish candle
+        F["inv"][i] = long_up and prev_bear       # inverted hammer: BUY, after a bearish candle
     return F
 
 
 # =============================================================================
 # Trade plan + simulation
 # =============================================================================
-def plan_trade(d, entry, vt, vb):
-    sl_d = SL_PIPS * PIP_SIZE
-    tp_min = TP_PIPS * PIP_SIZE
-    tp_cap = max(TP_MAX_PIPS, TP_PIPS) * PIP_SIZE
+def sl_for(tf_min):
+    return {60: SL_1H, 120: SL_2H, 240: SL_4H}.get(tf_min, SL_PIPS)
+
+
+def tp_for(tf_min):
+    return {60: TP_1H, 120: TP_2H, 240: TP_4H}.get(tf_min, TP_PIPS)
+
+
+def tf_name(tf_min):
+    return "%dm" % tf_min if tf_min < 60 else "%dH" % (tf_min // 60)
+
+
+def grade_points(zt, trig, blocked):
+    p = PTS_B if zt >= 3 else PTS_A if zt == 2 else 0
+    p += PTS_D if len(trig.split(" + ")) >= 2 else PTS_C
+    p += 0 if blocked else PTS_E
+    return p
+
+
+def grade_text(p):
+    return ("A+" if p >= THR_APLUS else "A" if p >= THR_A else "B+" if p >= THR_BPLUS else
+            "B" if p >= THR_B else "C+" if p >= THR_CPLUS else "C")
+
+
+def grade_letters(zt, trig, blocked):
+    out = []
+    if zt >= 3:
+        if PTS_B > 0:
+            out.append("B")
+    elif zt == 2:
+        if PTS_A > 0:
+            out.append("A")
+    if len(trig.split(" + ")) >= 2:
+        if PTS_D > 0:
+            out.append("D")
+    elif PTS_C > 0:
+        out.append("C")
+    if not blocked and PTS_E > 0:
+        out.append("E")
+    return ",".join(out) if out else "-"
+
+
+def plan_trade(d, entry, vt, vb, tf_min=15):
+    sl_d = sl_for(tf_min) * PIP_SIZE
+    tp_min = tp_for(tf_min) * PIP_SIZE
+    tp_cap = max(TP_MAX_PIPS, tp_for(tf_min)) * PIP_SIZE
     buf = TP_BUF_PIPS * PIP_SIZE
     near = None
     for i in range(len(vt)):
@@ -641,7 +695,7 @@ def plan_trade(d, entry, vt, vb):
     if EXTEND_TP and near is not None and near >= tp_min:
         tp_d = max(tp_min, min(near - buf, tp_cap))
     ok = not (BLOCK_SKIP and blocked)
-    return ok, entry - d * sl_d, entry + d * tp_d, tp_d / sl_d
+    return ok, entry - d * sl_d, entry + d * tp_d, tp_d / sl_d, blocked
 
 
 def simulate(chart, i, rd, entry, sl, tp, tp1, be_trig):
@@ -689,7 +743,7 @@ def simulate(chart, i, rd, entry, sl, tp, tp1, be_trig):
 # =============================================================================
 # Scan: every entry candle on every zone (same logic as the Pine scan)
 # =============================================================================
-def scan(chart, zones, allow_l, allow_s, F, now):
+def scan(chart, zones, allow_l, allow_s, F, now, bias_dir=None, tf_min=15):
     vt, vb, vc, vs = zones
     n = len(chart.t)
     nz = len(vt)
@@ -700,7 +754,7 @@ def scan(chart, zones, allow_l, allow_s, F, now):
     a_left = [False] * (nz * 2)
     trades = []
     st = dict(sig=0, win=0, loss=0, be=0, tp1=0, bet=0, exp=0, sum_r=0.0, sum_pips=0.0,
-              pairs=0, blk_bias=0, long=0, short=0)
+              pairs=0, blk_bias=0, long=0, short=0, grades={})
     free_from = -1
 
     for i in range(n):
@@ -732,7 +786,12 @@ def scan(chart, zones, allow_l, allow_s, F, now):
         t_doji = EN_DOJI and F["doji"][i]
         t_ham_l = EN_HAMMER and F["ham"][i]
         t_star_s = EN_STAR and F["star"][i]
-        any_trig = (F["bullRej"][i] or F["bearRej"][i] or t_eng_l or t_eng_s or t_doji or t_ham_l or t_star_s)
+        bd_i = bias_dir[i] if bias_dir else 0
+        t_inv_l = EN_INV_HAM and F["inv"][i]
+        t_auto_l = EN_HAM_AUTO and F["ham"][i] and bd_i != -1
+        t_auto_s = EN_HAM_AUTO and F["star"][i] and bd_i != 1
+        any_trig = (F["bullRej"][i] or F["bearRej"][i] or t_eng_l or t_eng_s or t_doji or t_ham_l or t_star_s
+                    or t_inv_l or t_auto_l or t_auto_s)
         if not any_trig:
             continue
 
@@ -745,7 +804,9 @@ def scan(chart, zones, allow_l, allow_s, F, now):
             w_ham = t_ham_l if rk == 0 else False
             w_star = t_star_s if rk == 1 else False
             w_dbl = EN_DOUBLE and is_rej
-            if not (w_sgl or w_eng or w_doj or w_ham or w_star or w_dbl):
+            w_auto = t_auto_l if rk == 0 else t_auto_s
+            w_inv = t_inv_l if rk == 0 else False
+            if not (w_sgl or w_eng or w_doj or w_ham or w_star or w_dbl or w_auto or w_inv):
                 continue
 
             best_z, best_tch, best_gap, best_nm = -1, 0, 0, ""
@@ -790,6 +851,10 @@ def scan(chart, zones, allow_l, allow_s, F, now):
                     nm += (" + " if nm else "") + "Engulf"
                 if w_doj and tap_n:
                     nm += (" + " if nm else "") + "Doji"
+                if w_auto and tap_n and not (w_ham if rk == 0 else w_star):
+                    nm += (" + " if nm else "") + ("Hammer" if rk == 0 else "Shooting star")
+                if w_inv and tap_n:
+                    nm += (" + " if nm else "") + "Inverted hammer"
                 if w_ham and tap_n:
                     nm += (" + " if nm else "") + "Hammer"
                 if w_star and tap_n:
@@ -811,15 +876,19 @@ def scan(chart, zones, allow_l, allow_s, F, now):
                 continue
             if not free_now:
                 continue
-            ok_t, sl_t, tp_t, rr_t = plan_trade(rd, c_c, vt, vb)
+            ok_t, sl_t, tp_t, rr_t, blk_t = plan_trade(rd, c_c, vt, vb, tf_min)
             if not ok_t:
                 continue
+            gr = grade_text(grade_points(best_tch, best_nm, blk_t))
+            gl = grade_letters(best_tch, best_nm, blk_t)
             tp1_t = c_c + rd * min(TP1_PIPS * PIP_SIZE, abs(tp_t - c_c))
             be_trig = c_c + rd * BE_PIPS * PIP_SIZE
             stat, exit_i, tp1_hit, be_touch = simulate(chart, i, rd, c_c, sl_t, tp_t, tp1_t, be_trig)
 
             st["sig"] += 1
             st["long" if rd == 1 else "short"] += 1
+            gs = st["grades"].setdefault(gr, dict(win=0, loss=0, be=0, exp=0, open=0))
+            gs[{-1: "loss", 2: "win", 4: "be", 3: "exp", 0: "open"}[stat]] += 1
             if stat == -1:
                 st["loss"] += 1
                 st["sum_r"] -= 1.0
@@ -839,7 +908,7 @@ def scan(chart, zones, allow_l, allow_s, F, now):
                     st["bet"] += 1
             free_from = 10 ** 9 if stat == 0 else exit_i
             trades.append(dict(idx=i, time=chart.t[i], dir=rd, trig=best_nm, entry=c_c, sl=sl_t, tp1=tp1_t, tp=tp_t,
-                               rr=rr_t, status=stat, zone_touches=best_tch, gap=best_gap,
+                               rr=rr_t, status=stat, zone_touches=best_tch, grade=gr, letters=gl, gap=best_gap,
                                zone_top=vt[best_z], zone_bot=vb[best_z]))
     return trades, st
 
@@ -923,7 +992,7 @@ def analyze(bars, h1, tf_min, now):
     zones = rebuild_valid(Lv, tf_min)
 
     F = candle_flags(chart)
-    trades, st = scan(chart, zones, allow_l, allow_s, F, now)
+    trades, st = scan(chart, zones, allow_l, allow_s, F, now, bias_dir, tf_min)
     return dict(chart=chart, zones=zones, trades=trades, stats=st,
                 bias=(d_b[-1], h_b[-1], bias_dir[-1]), n_levels=len(Lv.hi))
 
@@ -937,11 +1006,12 @@ def bias_word(b):
 
 def build_message(tf_min, tr, res):
     d = tr["dir"]
-    head = ("🟢 BUY" if d == 1 else "🔴 SELL") + " XAUUSD %dm" % tf_min
+    head = ("🟢 BUY" if d == 1 else "🔴 SELL") + " XAUUSD " + tf_name(tf_min)
     pips_sl = abs(tr["entry"] - tr["sl"]) / PIP_SIZE
     pips_tp = abs(tr["tp"] - tr["entry"]) / PIP_SIZE
     pips_t1 = abs(tr["tp1"] - tr["entry"]) / PIP_SIZE
     lines = [head,
+             "Setup: %s (%s)" % (tr["grade"], tr["letters"]),
              "Entry candle: %s" % tr["trig"],
              "Entry: %.2f" % tr["entry"],
              "SL: %.2f (%d pips)" % (tr["sl"], round(pips_sl)),
@@ -1036,8 +1106,40 @@ def save_state(state):
         log("could not save state: %s" % e)
 
 
-def chart_bars_for(tf_min, b15, now):
-    return b15 if tf_min == 15 else resample(b15, tf_min * 60, now)
+def resample_hours(b1h, hours, now):
+    """2H / 4H candles from 1h candles, aligned to the 17:00 New York trading day (like TradingView's forex session)."""
+    out = []
+    cur = None
+    cur_key = None
+    for (t, o, h, l, c) in b1h:
+        s_ = shifted_local(t)
+        k = (s_.date().toordinal(), s_.hour // hours)
+        if k == cur_key:
+            cur = (cur[0], cur[1], max(cur[2], h), min(cur[3], l), c)
+            out[-1] = cur
+        else:
+            cur_key = k
+            cur = (t, o, h, l, c)
+            out.append(cur)
+    # a bucket is complete when the next hour would start a new bucket
+    res = []
+    for b in out:
+        s_ = shifted_local(b[0] + 3600 * 0)
+        start_h = (s_.hour // hours) * hours
+        end_ts = b[0] + (hours - (s_.hour - start_h)) * 3600
+        if end_ts <= now:
+            res.append(b)
+    return res
+
+
+def chart_bars_for(tf_min, b15, now, b1h=None):
+    if tf_min == 15:
+        return b15
+    if tf_min < 60:
+        return resample(b15, tf_min * 60, now)
+    if b1h is None:
+        b1h = resample(b15, 3600, now)
+    return b1h if tf_min == 60 else resample_hours(b1h, tf_min // 60, now)
 
 
 def find_market_open(b15):
@@ -1113,7 +1215,7 @@ def _side(d):
 
 
 def trade_head(t):
-    return "%s XAUUSD %dm (%s)\nEntry: %.2f" % (_side(t["dir"]), t["tf"], t["trig"], t["entry"])
+    return "%s XAUUSD %s (%s)\nEntry: %.2f" % (_side(t["dir"]), tf_name(t["tf"]), t["trig"], t["entry"])
 
 
 def follow_trades(state, b15, now, send=True):
@@ -1179,7 +1281,7 @@ def follow_trades(state, b15, now, send=True):
         if closed:
             continue
         if n_bars_done >= MAX_TRADE_BARS * max(1, t["tf"] // 15):
-            log("trade %s %dm %.2f expired, no longer followed" % (_side(d), t["tf"], t["entry"]))
+            log("trade %s %s %.2f expired, no longer followed" % (_side(d), tf_name(t["tf"]), t["entry"]))
             continue
         keep.append(t)
     state["trades"] = keep
@@ -1191,7 +1293,7 @@ def run_cycle(state, send=True):
     sent = 0
     res15 = None
     for tf in TIMEFRAMES:
-        bars = chart_bars_for(tf, b15, now)
+        bars = chart_bars_for(tf, b15, now, b1h)
         res = analyze(bars, b1h, tf, now)
         if tf == 15:
             res15 = res
@@ -1199,19 +1301,19 @@ def run_cycle(state, send=True):
         prev = state.get(str(tf))
         if prev is None:
             state[str(tf)] = last_t
-            log("%dm: started. Last closed candle %s. Watching for new entries." % (tf, fmt_time(last_t)))
+            log("%s: started. Last closed candle %s. Watching for new entries." % (tf_name(tf), fmt_time(last_t)))
             continue
         fresh = [t for t in res["trades"]
                  if t["time"] > prev and t["time"] >= last_t - (MAX_CATCHUP_BARS - 1) * tf * 60]
         for tr in fresh:
             msg = build_message(tf, tr, res)
-            log("%dm SIGNAL:\n%s" % (tf, msg))
+            log("%s SIGNAL:\n%s" % (tf_name(tf), msg))
             if send:
                 send_telegram(msg)
                 register_trade(state, tf, tr)
             sent += 1
         if not fresh:
-            log("%dm: candle %s closed, no entry." % (tf, fmt_time(last_t)))
+            log("%s: candle %s closed, no entry." % (tf_name(tf), fmt_time(last_t)))
         state[str(tf)] = max(prev, last_t)
     sent += follow_trades(state, b15, now, send)
     if OPEN_NOTICE and res15 is not None:
@@ -1263,7 +1365,7 @@ def print_check():
     now = time.time()
     b15, b1h = fetch_all(now)
     for tf in TIMEFRAMES:
-        bars = chart_bars_for(tf, b15, now)
+        bars = chart_bars_for(tf, b15, now, b1h)
         res = analyze(bars, b1h, tf, now)
         print_report(tf, res, bars)
 
@@ -1271,8 +1373,8 @@ def print_check():
 def print_report(tf, res, bars):
     st = res["stats"]
     vt, vb, vc, vs = res["zones"]
-    print("\n==================== %dm  (data: %d candles, %s -> %s) ====================" %
-          (tf, len(bars), fmt_time(bars[0][0]), fmt_time(bars[-1][0])))
+    print("\n==================== %s  (data: %d candles, %s -> %s) ====================" %
+          (tf_name(tf), len(bars), fmt_time(bars[0][0]), fmt_time(bars[-1][0])))
     print("Bias now: Daily %s | 4H %s | trade bias %s" % (bias_word(res["bias"][0]), bias_word(res["bias"][1]),
                                                           {1: "BUY only", -1: "SELL only", 0: "NO TRADE"}[res["bias"][2]]
                                                           if USE_BIAS else "NOT USED"))
@@ -1284,11 +1386,18 @@ def print_report(tf, res, bars):
     print("--- trades in the last %d days (compare with the triangles on TradingView) ---" % TEST_DAYS)
     names = {0: "open", 2: "TP", -1: "SL", 4: "BE", 3: "expired"}
     for tr in res["trades"]:
-        print("%s  %-5s %-22s entry %.2f  SL %.2f  TP %.2f  -> %s" %
-              (fmt_time(tr["time"]), "LONG" if tr["dir"] == 1 else "SHORT", tr["trig"][:22], tr["entry"], tr["sl"],
+        print("%s  %-5s [%s (%s)] %-22s entry %.2f  SL %.2f  TP %.2f  -> %s" %
+              (fmt_time(tr["time"]), "LONG" if tr["dir"] == 1 else "SHORT", tr["grade"], tr["letters"], tr["trig"][:22], tr["entry"], tr["sl"],
                tr["tp"], names[tr["status"]]))
     closed = st["win"] + st["loss"] + st["be"]
     wr = (st["win"] * 100.0 / closed) if closed else 0.0
+    print("--- win rate per setup grade ---")
+    for g in ("A+", "A", "B+", "B", "C+", "C"):
+        x = st["grades"].get(g)
+        if x:
+            cl = x["win"] + x["loss"] + x["be"]
+            print("   %-2s  %d trades | %dW / %dL | win rate %s" %
+                  (g, sum(x.values()), x["win"], x["loss"], ("%.0f%%" % (x["win"] * 100.0 / cl)) if cl else "-"))
     print("--- stats ---")
     print("Entries found %d | taken %d (%d long / %d short) | blocked by bias %d" %
           (st["pairs"], st["sig"], st["long"], st["short"], st["blk_bias"]))
@@ -1333,11 +1442,11 @@ def selftest():
         saved = {k: globals()[k] for k in setup}
         globals().update(setup)
         try:
-            for tf in (15, 30):
-                bars = chart_bars_for(tf, b15, now)
+            for tf in (15, 30, 60, 120, 240):
+                bars = chart_bars_for(tf, b15, now, b1h)
                 t0 = time.time()
                 res = analyze(bars, b1h, tf, now)
-                print("[%s] %dm: %d zones, %d trades, %.1fs" % (label, tf, len(res["zones"][0]),
+                print("[%s] %s: %d zones, %d trades, %.1fs" % (label, tf_name(tf), len(res["zones"][0]),
                                                                 len(res["trades"]), time.time() - t0))
                 if res["trades"]:
                     msg = build_message(tf, res["trades"][-1], res)
