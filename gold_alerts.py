@@ -82,16 +82,24 @@ DISPLAY_UTC_OFFSET_HOURS = 3       # times shown in the messages (UTC+3 = Addis 
 MAX_CATCHUP_BARS = int(os.environ.get("MAX_CATCHUP_BARS", "3"))               # after downtime: still alert for signals of the last N closed candles
 
 # ---- 1) Bias (Daily + 4H)
-DAILY_SWING = 6
+SWING_MODE = "Automatic"           # "Manual" = the three swing lengths below | "Automatic" = adjusted by market activity (ATR14 / ATR100)
+COUNTER_TRADES = True              # a trade AGAINST the bias is allowed when the 15m structure has already turned that way
+DAILY_SWING = 6                    # used when SWING_MODE = Manual (Automatic: base Daily 5, 4H 4, 15m 4)
 H4_SWING = 4
-USE_BIAS = True                    # False = no bias filter, long AND short allowed
-BIAS_RULE = "Daily + 4H agree"     # "Daily + 4H agree" | "Daily only" | "4H only"
+USE_BIAS = True                    # tick "Use Daily + 4H bias" (uses BIAS_RULE). False and the other three False = no bias filter
+USE_4H15 = False                   # tick "Use 4H + 15m bias"
+USE_4H_ONLY = False                # tick "Use 4H only bias"
+USE_15_ONLY = False                # tick "Use 15min only bias"
+BIAS_RULE = "Daily + 4H agree"     # "Daily + 4H agree" | "Daily only" | "4H only" | "Daily + 4H + 15m agree" | "15m only" | "4H + 15m"
+M15_SWING = 2                      # swing length of the 15m bias (Manual mode)
 
 # ---- 2) Zones (KD logic)
 PIP_SIZE = 0.1                     # XAU on OANDA: 1 pip = $0.10  (100 pips = $10)
 WICK_ZONES = True                  # False = body rejection on S/R (KD), True = weak / wick rejection
-LEFT_BARS = 3
-RIGHT_BARS = 3
+PV_MODE = "Manual"                 # zone pivots: "Manual" = LEFT/RIGHT bars below | "Automatic" = test 2/2, 3/3, 4/4, 5/5 and keep the best win rate
+LEFT_BARS = 4
+RIGHT_BARS = 4
+AUTO_MIN_TR = 5                    # Automatic pivots: minimum closed trades for a setting to count
 MIN_TOUCHES = 1
 SPACING_HRS = 4.0
 WINDOW_DAYS = 180
@@ -105,23 +113,25 @@ WICK_PCT = 50.0
 INC_ENGULF = False                 # "Also count engulfing candles as a rejection"
 TOL_PIPS = 30.0
 SWEEP_PIPS = 300.0
-MIN_GAP = 1
+MIN_GAP = 2
 MAX_GAP = 40
 MUST_LEAVE = True
 CHAIN_REJ = False
 EN_SINGLE = False
 EN_DOUBLE = True
-EN_ENGULF = False
+EN_ENGULF = True
 EN_DOJI = False
-EN_HAMMER = False
-EN_STAR = False
+EN_HAMMER = True
+EN_STAR = True
+EN_DR_SS = True                    # Double rejection + Shooting star (SELL)
+EN_DR_ENG = True                   # Double rejection + Bullish engulf (BUY)
 EN_INV_HAM = False             # Inverted hammer: BUY, long upper wick after a bearish candle
-EN_HAM_AUTO = True           # Hammer / Shooting star: the bias picks the candle (works also when USE_BIAS is False)
+EN_HAM_AUTO = True            # Hammer / Shooting star: the bias picks the candle (works also when USE_BIAS is False)
 
 # ---- 4) Trade
-TEST_DAYS = 120
+TEST_DAYS = 180
 SL_PIPS = 100.0
-TP1_PIPS = 100.0
+TP1_PIPS = 150.0
 BE_PIPS = 100.0
 BE_MOVE = False
 TP_PIPS = 300.0                    # minimum TP on 15m / 30m (1:3 with SL 100)
@@ -131,8 +141,8 @@ TP_1H, TP_2H, TP_4H = 450.0, 600.0, 600.0      # minimum take profit on the 1H /
 #      D two or more entry candles together, E no major zone inside the minimum TP distance
 PTS_A, PTS_B, PTS_C, PTS_D, PTS_E = 1, 2, 1, 2, 1
 THR_APLUS, THR_A, THR_BPLUS, THR_B, THR_CPLUS = 5, 4, 3, 2, 1
-EXTEND_TP = False
-TP_MAX_PIPS = 1000.0
+EXTEND_TP = True
+TP_MAX_PIPS = 4000.0
 TP_BUF_PIPS = 0.0
 BLOCK_SKIP = False
 ONE_AT_A_TIME = True
@@ -140,7 +150,7 @@ MAX_TRADE_BARS = 200
 
 # ---- Any setting above can be changed WITHOUT editing this file: set an environment variable with the same name
 # (on GitHub: repo Settings > Secrets and variables > Actions > Variables tab > New repository variable).
-_TUNABLE = ["DAILY_SWING", "H4_SWING", "USE_BIAS", "BIAS_RULE", "WICK_ZONES", "LEFT_BARS", "RIGHT_BARS",
+_TUNABLE = ["SWING_MODE", "COUNTER_TRADES", "USE_4H15", "USE_4H_ONLY", "USE_15_ONLY", "PV_MODE", "AUTO_MIN_TR", "EN_DR_SS", "EN_DR_ENG", "DAILY_SWING", "H4_SWING", "M15_SWING", "USE_BIAS", "BIAS_RULE", "WICK_ZONES", "LEFT_BARS", "RIGHT_BARS",
             "MIN_TOUCHES", "SPACING_HRS", "WINDOW_DAYS", "MAX_PIPS_MID", "MERGE_PIPS", "WICK_PCT", "INC_ENGULF",
             "TOL_PIPS", "SWEEP_PIPS", "MIN_GAP", "MAX_GAP", "MUST_LEAVE", "CHAIN_REJ", "EN_SINGLE", "EN_DOUBLE",
             "EN_ENGULF", "EN_DOJI", "EN_HAMMER", "EN_STAR", "EN_HAM_AUTO", "EN_INV_HAM", "SL_1H", "SL_2H", "SL_4H", "TP_1H", "TP_2H", "TP_4H", "PTS_A", "PTS_B", "PTS_C", "PTS_D", "PTS_E", "THR_APLUS", "THR_A", "THR_BPLUS", "THR_B", "THR_CPLUS", "SL_PIPS", "TP1_PIPS", "BE_PIPS", "BE_MOVE", "TP_PIPS",
@@ -456,6 +466,46 @@ def htf_bias_series(H, L, C, length):
     return out
 
 
+def atr_series(H, L, C, length):
+    """Pine ta.atr: RMA of the true range (None until `length` bars exist)."""
+    n = len(C)
+    out = [None] * n
+    tr = []
+    for i in range(n):
+        if i == 0:
+            tr.append(H[i] - L[i])
+        else:
+            tr.append(max(H[i] - L[i], abs(H[i] - C[i - 1]), abs(L[i] - C[i - 1])))
+        if i == length - 1:
+            out[i] = sum(tr) / length
+        elif i >= length:
+            out[i] = (out[i - 1] * (length - 1) + tr[i]) / length
+    return out
+
+
+def bias_series_mode(H, L, C, manual_len, auto_base):
+    """[(bias, event, swing length used)] for the bar being formed at index t (0..n).
+    Manual = fixed swing length. Automatic = busy market (ATR14/ATR100 >= 1.3) -> base-1, quiet (<= 0.8) -> base+2, else base."""
+    n = len(C)
+    if SWING_MODE != "Automatic":
+        return [(b, e, manual_len) for (b, e) in htf_bias_series(H, L, C, manual_len)]
+    len_s, len_n, len_l = max(2, auto_base - 1), auto_base, auto_base + 2
+    bs = htf_bias_series(H, L, C, len_s)
+    bn = htf_bias_series(H, L, C, len_n)
+    bl = htf_bias_series(H, L, C, len_l)
+    a14 = atr_series(H, L, C, 14)
+    a100 = atr_series(H, L, C, 100)
+    out = []
+    for t in range(n + 1):
+        x14 = a14[t - 1] if t >= 1 else None
+        x100 = a100[t - 1] if t >= 1 else None
+        r = 1.0 if (x100 is None or x100 == 0 or x14 is None) else x14 / x100
+        pick = 0 if r >= 1.3 else 2 if r <= 0.8 else 1
+        b, e = (bs, bn, bl)[pick][t]
+        out.append((b, e, (len_s, len_n, len_l)[pick]))
+    return out
+
+
 class Agg:
     pass
 
@@ -743,7 +793,7 @@ def simulate(chart, i, rd, entry, sl, tp, tp1, be_trig):
 # =============================================================================
 # Scan: every entry candle on every zone (same logic as the Pine scan)
 # =============================================================================
-def scan(chart, zones, allow_l, allow_s, F, now, bias_dir=None, tf_min=15):
+def scan(chart, zones, allow_l, allow_s, F, now, bias_dir=None, tf_min=15, ctr_l=None, ctr_s=None):
     vt, vb, vc, vs = zones
     n = len(chart.t)
     nz = len(vt)
@@ -753,7 +803,9 @@ def scan(chart, zones, allow_l, allow_s, F, now, bias_dir=None, tf_min=15):
     a_bar = [-1] * (nz * 2)
     a_left = [False] * (nz * 2)
     trades = []
-    st = dict(sig=0, win=0, loss=0, be=0, tp1=0, bet=0, exp=0, sum_r=0.0, sum_pips=0.0,
+    dbl_l = EN_DOUBLE or EN_DR_ENG
+    dbl_s = EN_DOUBLE or EN_DR_SS
+    st = dict(ctr=dict(n=0, win=0, loss=0, be=0, exp=0, open=0, sum_r=0.0), sig=0, win=0, loss=0, be=0, tp1=0, bet=0, exp=0, sum_r=0.0, sum_pips=0.0,
               pairs=0, blk_bias=0, long=0, short=0, grades={})
     free_from = -1
 
@@ -763,7 +815,7 @@ def scan(chart, zones, allow_l, allow_s, F, now, bias_dir=None, tf_min=15):
         h_e = max(h_i, chart.h[i - 1]) if i > 0 else h_i
 
         # (a) update the armed 1st rejections
-        if EN_DOUBLE:
+        if dbl_l or dbl_s:
             for z in range(nz):
                 zt, zb = vt[z], vb[z]
                 for k in (0, 1):
@@ -782,6 +834,8 @@ def scan(chart, zones, allow_l, allow_s, F, now, bias_dir=None, tf_min=15):
         t_sgl_l = EN_SINGLE and F["bullRej"][i]
         t_sgl_s = EN_SINGLE and F["bearRej"][i]
         t_eng_l = EN_ENGULF and F["bullEng"][i]
+        t_eng_lc = EN_DR_ENG and F["bullEng"][i]
+        t_ss_c = EN_DR_SS and F["star"][i]
         t_eng_s = EN_ENGULF and F["bearEng"][i]
         t_doji = EN_DOJI and F["doji"][i]
         t_ham_l = EN_HAMMER and F["ham"][i]
@@ -791,7 +845,7 @@ def scan(chart, zones, allow_l, allow_s, F, now, bias_dir=None, tf_min=15):
         t_auto_l = EN_HAM_AUTO and F["ham"][i] and bd_i != -1
         t_auto_s = EN_HAM_AUTO and F["star"][i] and bd_i != 1
         any_trig = (F["bullRej"][i] or F["bearRej"][i] or t_eng_l or t_eng_s or t_doji or t_ham_l or t_star_s
-                    or t_inv_l or t_auto_l or t_auto_s)
+                    or t_inv_l or t_auto_l or t_auto_s or t_eng_lc or t_ss_c)
         if not any_trig:
             continue
 
@@ -799,11 +853,11 @@ def scan(chart, zones, allow_l, allow_s, F, now, bias_dir=None, tf_min=15):
             rd = 1 if rk == 0 else -1
             is_rej = F["bullRej"][i] if rk == 0 else F["bearRej"][i]
             w_sgl = t_sgl_l if rk == 0 else t_sgl_s
-            w_eng = t_eng_l if rk == 0 else t_eng_s
+            w_eng = (t_eng_l or t_eng_lc) if rk == 0 else t_eng_s
             w_doj = t_doji
             w_ham = t_ham_l if rk == 0 else False
-            w_star = t_star_s if rk == 1 else False
-            w_dbl = EN_DOUBLE and is_rej
+            w_star = (t_star_s or t_ss_c) if rk == 1 else False
+            w_dbl = (dbl_l if rk == 0 else dbl_s) and is_rej
             w_auto = t_auto_l if rk == 0 else t_auto_s
             w_inv = t_inv_l if rk == 0 else False
             if not (w_sgl or w_eng or w_doj or w_ham or w_star or w_dbl or w_auto or w_inv):
@@ -885,6 +939,16 @@ def scan(chart, zones, allow_l, allow_s, F, now, bias_dir=None, tf_min=15):
             be_trig = c_c + rd * BE_PIPS * PIP_SIZE
             stat, exit_i, tp1_hit, be_touch = simulate(chart, i, rd, c_c, sl_t, tp_t, tp1_t, be_trig)
 
+            is_ctr = bool((ctr_l[i] if rd == 1 else ctr_s[i]) if ctr_l is not None else False)
+            if is_ctr:
+                c_ = st["ctr"]
+                c_["n"] += 1
+                k_ = {-1: "loss", 2: "win", 4: "be", 3: "exp", 0: "open"}[stat]
+                c_[k_] += 1
+                if stat == -1:
+                    c_["sum_r"] -= 1.0
+                elif stat == 2:
+                    c_["sum_r"] += rr_t
             st["sig"] += 1
             st["long" if rd == 1 else "short"] += 1
             gs = st["grades"].setdefault(gr, dict(win=0, loss=0, be=0, exp=0, open=0))
@@ -908,7 +972,7 @@ def scan(chart, zones, allow_l, allow_s, F, now, bias_dir=None, tf_min=15):
                     st["bet"] += 1
             free_from = 10 ** 9 if stat == 0 else exit_i
             trades.append(dict(idx=i, time=chart.t[i], dir=rd, trig=best_nm, entry=c_c, sl=sl_t, tp1=tp1_t, tp=tp_t,
-                               rr=rr_t, status=stat, zone_touches=best_tch, grade=gr, letters=gl, gap=best_gap,
+                               rr=rr_t, status=stat, zone_touches=best_tch, grade=gr, letters=gl, ctr=is_ctr, gap=best_gap,
                                zone_top=vt[best_z], zone_bot=vb[best_z]))
     return trades, st
 
@@ -916,53 +980,55 @@ def scan(chart, zones, allow_l, allow_s, F, now, bias_dir=None, tf_min=15):
 # =============================================================================
 # Full analysis
 # =============================================================================
-def analyze(bars, h1, tf_min, now):
-    chart = Chart(bars)
+def trade_direction(bd, b4, b15):
+    """Pine logic: biasDir from the Bias rule, then every ticked bias box must agree. Returns (tradeDir, anyBias)."""
+    if BIAS_RULE == "Daily + 4H + 15m agree":
+        bdir = bd if (bd != 0 and bd == b4 and b4 == b15) else 0
+    elif BIAS_RULE == "Daily + 4H agree":
+        bdir = bd if (bd != 0 and bd == b4) else 0
+    elif BIAS_RULE == "Daily only":
+        bdir = bd
+    elif BIAS_RULE == "15m only":
+        bdir = b15
+    elif BIAS_RULE == "4H + 15m":
+        bdir = b4 if (b4 != 0 and b4 == b15) else 0
+    else:
+        bdir = b4
+    any_bias = USE_BIAS or USE_4H15 or USE_4H_ONLY or USE_15_ONLY
+    b4h15 = b4 if (b4 != 0 and b4 == b15) else 0
+    first, tmp, conf = True, 0, False
+    for on, val in ((USE_BIAS, bdir), (USE_4H15, b4h15), (USE_4H_ONLY, b4), (USE_15_ONLY, b15)):
+        if not on:
+            continue
+        if first:
+            tmp, first = val, False
+        elif val != tmp:
+            conf = True
+    td = bdir if not any_bias else (0 if conf else tmp)
+    return td, bdir, any_bias
+
+
+def any_bias_on():
+    return USE_BIAS or USE_4H15 or USE_4H_ONLY or USE_15_ONLY
+
+
+def show_15m():
+    return USE_4H15 or USE_15_ONLY or BIAS_RULE in ("Daily + 4H + 15m agree", "15m only", "4H + 15m")
+
+
+def build_zones(chart, agg, last_idx, now, tf_min, left, right):
     n = len(chart.t)
     tf_sec = tf_min * 60
-
-    # ---- higher timeframes (completed candles only)
-    agg = {}
-    for kind, fn in (("4h", key_4h), ("d", key_d), ("w", key_w)):
-        agg[kind] = aggregate(h1, fn, kind, now)
-
-    # ---- bias for every chart bar
-    bias_d = htf_bias_series(agg["d"].h, agg["d"].l, agg["d"].c, DAILY_SWING)
-    bias_4 = htf_bias_series(agg["4h"].h, agg["4h"].l, agg["4h"].c, H4_SWING)
-    key_funcs = {"4h": key_4h, "d": key_d, "w": key_w}
-    last_idx = {"4h": {}, "d": {}, "w": {}}
-    d_b, h_b, bias_dir, allow_l, allow_s = [], [], [], [], []
-    for i in range(n):
-        t = chart.t[i]
-        kd, k4 = key_d(t), key_4h(t)
-        last_idx["d"][kd] = i
-        last_idx["4h"][k4] = i
-        last_idx["w"][key_w(t)] = i
-        bd = bias_d[bisect.bisect_left(agg["d"].keys, kd)][0]
-        b4 = bias_4[bisect.bisect_left(agg["4h"].keys, k4)][0]
-        if BIAS_RULE == "Daily + 4H agree":
-            bdir = bd if (bd != 0 and bd == b4) else 0
-        elif BIAS_RULE == "Daily only":
-            bdir = bd
-        else:
-            bdir = b4
-        d_b.append(bd)
-        h_b.append(b4)
-        bias_dir.append(bdir)
-        allow_l.append((not USE_BIAS) or bdir == 1)
-        allow_s.append((not USE_BIAS) or bdir == -1)
-
-    # ---- pivot events (KD logic): local chart pivots + 4H / D / W pivots
     if WICK_ZONES:
         src_h, src_l = chart.h, chart.l
     else:
         src_h = [max(o, c) for o, c in zip(chart.o, chart.c)]
         src_l = [min(o, c) for o, c in zip(chart.o, chart.c)]
     events = []
-    for p in range(LEFT_BARS, n - RIGHT_BARS):
-        ph = pivot_high(src_h, p, LEFT_BARS, RIGHT_BARS)
-        pl = pivot_low(src_l, p, LEFT_BARS, RIGHT_BARS)
-        di = p + RIGHT_BARS
+    for p in range(left, n - right):
+        ph = pivot_high(src_h, p, left, right)
+        pl = pivot_low(src_l, p, left, right)
+        di = p + right
         if ph is not None:
             events.append((chart.t[di], 0, di, ph))
         if pl is not None:
@@ -974,10 +1040,10 @@ def analyze(bars, h1, tf_min, now):
         else:
             sh = [max(o, c) for o, c in zip(a.o, a.c)]
             sl_ = [min(o, c) for o, c in zip(a.o, a.c)]
-        for t in range(LEFT_BARS + RIGHT_BARS, len(a.keys)):
-            p = t - RIGHT_BARS
-            ph = pivot_high(sh, p, LEFT_BARS, RIGHT_BARS)
-            pl = pivot_low(sl_, p, LEFT_BARS, RIGHT_BARS)
+        for t in range(left + right, len(a.keys)):
+            p = t - right
+            ph = pivot_high(sh, p, left, right)
+            pl = pivot_low(sl_, p, left, right)
             idx = last_idx[kind].get(a.keys[t], -1)
             ev_time = chart.t[idx] if idx >= 0 else a.last_t[t] + 3600 - tf_sec
             if ph is not None:
@@ -985,28 +1051,97 @@ def analyze(bars, h1, tf_min, now):
             if pl is not None:
                 events.append((ev_time, order + 1, idx, pl))
     events.sort(key=lambda e: (e[0], e[1]))
-
     Lv = Levels()
     for (ev_time, order, idx, val) in events:
         process_level(Lv, val, ev_time, idx, chart, now, tf_min)
-    zones = rebuild_valid(Lv, tf_min)
+    return rebuild_valid(Lv, tf_min), len(Lv.hi)
+
+
+def analyze(bars, h1, tf_min, now, m15=None):
+    chart = Chart(bars)
+    n = len(chart.t)
+    tf_sec = tf_min * 60
+
+    # ---- higher timeframes (completed candles only)
+    agg = {}
+    for kind, fn in (("4h", key_4h), ("d", key_d), ("w", key_w)):
+        agg[kind] = aggregate(h1, fn, kind, now)
+
+    # ---- bias series (Manual or Automatic swing length)
+    bias_d = bias_series_mode(agg["d"].h, agg["d"].l, agg["d"].c, DAILY_SWING, 5)
+    bias_4 = bias_series_mode(agg["4h"].h, agg["4h"].l, agg["4h"].c, H4_SWING, 4)
+    m15 = m15 if m15 is not None else bars
+    bias_15 = bias_series_mode([b[2] for b in m15], [b[3] for b in m15], [b[4] for b in m15], M15_SWING, 4)
+    t15 = [b[0] for b in m15]
+    last_idx = {"4h": {}, "d": {}, "w": {}}
+    d_b, h_b, m_b, bias_dir, allow_l, allow_s, ctr_l, ctr_s = [], [], [], [], [], [], [], []
+    swing_used = None
+    any_b = any_bias_on()
+    for i in range(n):
+        t = chart.t[i]
+        kd, k4 = key_d(t), key_4h(t)
+        last_idx["d"][kd] = i
+        last_idx["4h"][k4] = i
+        last_idx["w"][key_w(t)] = i
+        d_t = bias_d[bisect.bisect_left(agg["d"].keys, kd)]
+        h_t = bias_4[bisect.bisect_left(agg["4h"].keys, k4)]
+        j15 = min(max(bisect.bisect_right(t15, t + tf_sec - 900) - 1, 0), len(bias_15) - 1)
+        m_t = bias_15[j15]
+        bd, b4, b15v = d_t[0], h_t[0], m_t[0]
+        td, bdir, _ = trade_direction(bd, b4, b15v)
+        cl = COUNTER_TRADES and any_b and td == -1 and (b15v == 1 or m_t[1] == 2)
+        cs = COUNTER_TRADES and any_b and td == 1 and (b15v == -1 or m_t[1] == -2)
+        d_b.append(bd)
+        h_b.append(b4)
+        m_b.append(b15v)
+        bias_dir.append(td)
+        allow_l.append((not any_b) or td == 1 or cl)
+        allow_s.append((not any_b) or td == -1 or cs)
+        ctr_l.append(cl)
+        ctr_s.append(cs)
+        swing_used = (d_t[2], h_t[2], m_t[2])
 
     F = candle_flags(chart)
-    trades, st = scan(chart, zones, allow_l, allow_s, F, now, bias_dir, tf_min)
+    auto_txt = ""
+    if PV_MODE == "Automatic":
+        best = None
+        parts = []
+        for N in (2, 3, 4, 5):
+            zN, nlv = build_zones(chart, agg, last_idx, now, tf_min, N, N)
+            trN, stN = scan(chart, zN, allow_l, allow_s, F, now, bias_dir, tf_min, ctr_l, ctr_s)
+            closed = stN["win"] + stN["loss"] + stN["be"]
+            wr = stN["win"] * 100.0 / closed if closed else 0.0
+            valid = closed >= AUTO_MIN_TR
+            parts.append("%d/%d: %s%s" % (N, N, ("%.0f%% of %d" % (wr, closed)) if closed else "-", "" if valid else "*"))
+            if valid and (best is None or wr > best[0] or (wr == best[0] and stN["sum_r"] > best[1])):
+                best = (wr, stN["sum_r"], N, zN, nlv, trN, stN)
+            if N == 3:
+                fallback = (0, 0, 3, zN, nlv, trN, stN)
+        pick = best if best is not None else fallback
+        _, _, used, zones, nlv, trades, st = pick
+        auto_txt = "using %d/%d  ||  %s   (* = fewer than %d trades)" % (used, used, " | ".join(parts), AUTO_MIN_TR)
+    else:
+        zones, nlv = build_zones(chart, agg, last_idx, now, tf_min, LEFT_BARS, RIGHT_BARS)
+        trades, st = scan(chart, zones, allow_l, allow_s, F, now, bias_dir, tf_min, ctr_l, ctr_s)
     return dict(chart=chart, zones=zones, trades=trades, stats=st,
-                bias=(d_b[-1], h_b[-1], bias_dir[-1]), n_levels=len(Lv.hi))
+                bias=(d_b[-1], h_b[-1], bias_dir[-1]), bias15=m_b[-1], n_levels=nlv,
+                swing=swing_used, auto=auto_txt)
 
 
 # =============================================================================
 # Messages
 # =============================================================================
+def _m15_txt(res):
+    return (" / 15m %s" % bias_word(res["bias15"])) if show_15m() else ""
+
+
 def bias_word(b):
     return "Bullish" if b == 1 else "Bearish" if b == -1 else "Range"
 
 
 def build_message(tf_min, tr, res):
     d = tr["dir"]
-    head = ("🟢 BUY" if d == 1 else "🔴 SELL") + " XAUUSD " + tf_name(tf_min)
+    head = ("🟢 " if d == 1 else "🔴 ") + ("COUNTER-TREND " if tr.get("ctr") else "") + ("BUY" if d == 1 else "SELL") + " XAUUSD " + tf_name(tf_min)
     pips_sl = abs(tr["entry"] - tr["sl"]) / PIP_SIZE
     pips_tp = abs(tr["tp"] - tr["entry"]) / PIP_SIZE
     pips_t1 = abs(tr["tp1"] - tr["entry"]) / PIP_SIZE
@@ -1020,8 +1155,10 @@ def build_message(tf_min, tr, res):
              "Zone: %.2f - %.2f (%d touches)" % (tr["zone_bot"], tr["zone_top"], tr["zone_touches"])]
     if BE_MOVE:
         lines.append("Move SL to entry after +%d pips" % round(BE_PIPS))
-    if USE_BIAS:
-        lines.append("Bias: Daily %s / 4H %s" % (bias_word(res["bias"][0]), bias_word(res["bias"][1])))
+    if any_bias_on():
+        lines.append("Bias: Daily %s / 4H %s%s" % (bias_word(res["bias"][0]), bias_word(res["bias"][1]), _m15_txt(res)))
+        if tr.get("ctr"):
+            lines.append("⚠ Counter-trend trade (15m turned %s)" % ("up" if d == 1 else "down"))
     else:
         lines.append("Bias filter OFF")
     lines.append("Candle closed: %s (UTC+%d)" % (fmt_time(tr["time"] + tf_min * 60), DISPLAY_UTC_OFFSET_HOURS))
@@ -1156,8 +1293,8 @@ def build_open_message(open_t, res, last_close):
     lines = ["🟢 XAUUSD market is open",
              "First candle: %s (UTC+3)" % fmt_time(open_t),
              "Price: %.2f" % last_close]
-    if USE_BIAS:
-        lines.append("Bias: Daily %s / 4H %s" % (bias_word(d), bias_word(h)))
+    if any_bias_on():
+        lines.append("Bias: Daily %s / 4H %s%s" % (bias_word(d), bias_word(h), _m15_txt(res)))
         lines.append("Trade bias: %s" % {1: "BUY only", -1: "SELL only", 0: "NO TRADE (wait)"}[tb])
     lines.append("Watching 15m and 30m. I will message you when a possible entry candle closes.")
     return "\n".join(lines)
@@ -1207,7 +1344,7 @@ def register_trade(state, tf, tr):
         return
     lst = state.setdefault("trades", [])
     lst.append(dict(tf=tf, time=tr["time"], dir=tr["dir"], trig=tr["trig"], entry=tr["entry"], sl=tr["sl"],
-                    tp=tr["tp"], levels=trade_levels(tr), hit=0, checked=tr["time"] + tf * 60 - 900))
+                    tp=tr["tp"], levels=trade_levels(tr), hit=0, ctr=bool(tr.get("ctr")), checked=tr["time"] + tf * 60 - 900))
 
 
 def _side(d):
@@ -1215,7 +1352,7 @@ def _side(d):
 
 
 def trade_head(t):
-    return "%s XAUUSD %s (%s)\nEntry: %.2f" % (_side(t["dir"]), tf_name(t["tf"]), t["trig"], t["entry"])
+    return "%s%s XAUUSD %s (%s)\nEntry: %.2f" % ("COUNTER-TREND " if t.get("ctr") else "", _side(t["dir"]), tf_name(t["tf"]), t["trig"], t["entry"])
 
 
 def follow_trades(state, b15, now, send=True):
@@ -1294,7 +1431,7 @@ def run_cycle(state, send=True):
     res15 = None
     for tf in TIMEFRAMES:
         bars = chart_bars_for(tf, b15, now, b1h)
-        res = analyze(bars, b1h, tf, now)
+        res = analyze(bars, b1h, tf, now, b15)
         if tf == 15:
             res15 = res
         last_t = bars[-1][0]
@@ -1366,7 +1503,7 @@ def print_check():
     b15, b1h = fetch_all(now)
     for tf in TIMEFRAMES:
         bars = chart_bars_for(tf, b15, now, b1h)
-        res = analyze(bars, b1h, tf, now)
+        res = analyze(bars, b1h, tf, now, b15)
         print_report(tf, res, bars)
 
 
@@ -1375,9 +1512,13 @@ def print_report(tf, res, bars):
     vt, vb, vc, vs = res["zones"]
     print("\n==================== %s  (data: %d candles, %s -> %s) ====================" %
           (tf_name(tf), len(bars), fmt_time(bars[0][0]), fmt_time(bars[-1][0])))
-    print("Bias now: Daily %s | 4H %s | trade bias %s" % (bias_word(res["bias"][0]), bias_word(res["bias"][1]),
+    print("Bias now: Daily %s | 4H %s%s | trade bias %s" % (bias_word(res["bias"][0]), bias_word(res["bias"][1]), _m15_txt(res).replace(" /", " |"),
                                                           {1: "BUY only", -1: "SELL only", 0: "NO TRADE"}[res["bias"][2]]
-                                                          if USE_BIAS else "NOT USED"))
+                                                          if any_bias_on() else "NOT USED"))
+    if res.get("swing"):
+        print("Swing lengths used now (%s): Daily %d | 4H %d | 15m %d" % ((SWING_MODE,) + tuple(res["swing"])))
+    if res.get("auto"):
+        print("Automatic zone pivots: " + res["auto"])
     print("Zones: %d (min touches %d). Closest to price:" % (len(vt), MIN_TOUCHES))
     last = bars[-1][4]
     near = sorted(range(len(vt)), key=lambda i: min(abs(vt[i] - last), abs(vb[i] - last)))[:6]
@@ -1386,8 +1527,8 @@ def print_report(tf, res, bars):
     print("--- trades in the last %d days (compare with the triangles on TradingView) ---" % TEST_DAYS)
     names = {0: "open", 2: "TP", -1: "SL", 4: "BE", 3: "expired"}
     for tr in res["trades"]:
-        print("%s  %-5s [%s (%s)] %-22s entry %.2f  SL %.2f  TP %.2f  -> %s" %
-              (fmt_time(tr["time"]), "LONG" if tr["dir"] == 1 else "SHORT", tr["grade"], tr["letters"], tr["trig"][:22], tr["entry"], tr["sl"],
+        print("%s  %-5s%s [%s (%s)] %-22s entry %.2f  SL %.2f  TP %.2f  -> %s" %
+              (fmt_time(tr["time"]), "LONG" if tr["dir"] == 1 else "SHORT", " CTR" if tr.get("ctr") else "    ", tr["grade"], tr["letters"], tr["trig"][:22], tr["entry"], tr["sl"],
                tr["tp"], names[tr["status"]]))
     closed = st["win"] + st["loss"] + st["be"]
     wr = (st["win"] * 100.0 / closed) if closed else 0.0
@@ -1398,6 +1539,13 @@ def print_report(tf, res, bars):
             cl = x["win"] + x["loss"] + x["be"]
             print("   %-2s  %d trades | %dW / %dL | win rate %s" %
                   (g, sum(x.values()), x["win"], x["loss"], ("%.0f%%" % (x["win"] * 100.0 / cl)) if cl else "-"))
+    if COUNTER_TRADES:
+        c_ = st["ctr"]
+        cl_ = c_["win"] + c_["loss"] + c_["be"]
+        print("--- counter-trend trades (15m turned against the bias) ---")
+        print("   %d taken | %dW / %dL%s | win rate %s | net %+.1fR | open %d | expired %d" %
+              (c_["n"], c_["win"], c_["loss"], (" / %dBE" % c_["be"]) if c_["be"] else "",
+               ("%.0f%%" % (c_["win"] * 100.0 / cl_)) if cl_ else "-", c_["sum_r"], c_["open"], c_["exp"]))
     print("--- stats ---")
     print("Entries found %d | taken %d (%d long / %d short) | blocked by bias %d" %
           (st["pairs"], st["sig"], st["long"], st["short"], st["blk_bias"]))
@@ -1429,7 +1577,7 @@ def synthetic_bars(now, days=200, seed=7):
 
 
 def selftest():
-    global MIN_TOUCHES, EN_SINGLE, EN_ENGULF, EN_DOJI, EN_HAMMER, EN_STAR, USE_BIAS
+    global MIN_TOUCHES, EN_SINGLE, EN_ENGULF, EN_DOJI, EN_HAMMER, EN_STAR, USE_BIAS, USE_4H15, USE_4H_ONLY, USE_15_ONLY
     now = time.time()
     all15 = synthetic_bars(now)
     # 1h bars made from the same 15m data
@@ -1438,14 +1586,14 @@ def selftest():
     print("synthetic data: %d x 15m, %d x 1h" % (len(b15), len(b1h)))
     for label, setup in (("default settings", {}),
                          ("all entry candles + no bias", dict(EN_SINGLE=True, EN_ENGULF=True, EN_DOJI=True,
-                                                              EN_HAMMER=True, EN_STAR=True, USE_BIAS=False))):
+                                                              EN_HAMMER=True, EN_STAR=True, USE_BIAS=False, USE_4H15=False, USE_4H_ONLY=False, USE_15_ONLY=False))):
         saved = {k: globals()[k] for k in setup}
         globals().update(setup)
         try:
             for tf in (15, 30, 60, 120, 240):
                 bars = chart_bars_for(tf, b15, now, b1h)
                 t0 = time.time()
-                res = analyze(bars, b1h, tf, now)
+                res = analyze(bars, b1h, tf, now, b15)
                 print("[%s] %s: %d zones, %d trades, %.1fs" % (label, tf_name(tf), len(res["zones"][0]),
                                                                 len(res["trades"]), time.time() - t0))
                 if res["trades"]:
@@ -1479,7 +1627,7 @@ def main():
     elif a.test_open:
         now = time.time()
         b15, b1h = fetch_all(now)
-        res = analyze(b15, b1h, 15, now)
+        res = analyze(b15, b1h, 15, now, b15)
         send_telegram("(test) " + build_open_message(find_market_open(b15) or b15[-1][0], res, b15[-1][4]))
         print("sent")
     elif a.test_telegram:
